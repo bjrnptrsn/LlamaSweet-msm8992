@@ -1219,6 +1219,9 @@ static int msm_hotplug_fb_notifier_callback(struct notifier_block *self,
 	struct fb_event *evdata = data;
 	int *blank;
 
+	if (!msm_enabled)
+		return 0;
+
 	if (event == FB_EVENT_BLANK) {
 		blank = evdata->data;
 
