@@ -95,8 +95,9 @@ static struct cpu_hotplug {
 };
 
 
-static unsigned int NwNs_Threshold[12] = {12,0, 25,7, 30,10, 35,13, 40,16, 0,20};
-static unsigned int TwTs_Threshold[12] = {140,0, 140,190, 140,190, 140,190, 140,190, 0,190};
+static unsigned int NwNs_Threshold[12] = {10,0, 14,5, 17,7, 20,10, 25,13, 0,16};
+static unsigned int TwTs_Threshold[12] = {100,0, 100,190, 100,190, 100,190, 100,400, 0,400};
+
 
 struct down_lock {
 	unsigned int locked;
