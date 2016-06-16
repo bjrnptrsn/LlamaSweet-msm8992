@@ -46,6 +46,7 @@
 #define NUM_BIG_CORES			2
 #define MSM_MPDEC_IDLE_FREQ		302400
 
+
 enum {
 	MSM_MPDEC_DISABLED = 0,
 	MSM_MPDEC_IDLE,
@@ -213,8 +214,8 @@ static int mp_decision(void) {
 
 	last_time = ktime_to_ms(ktime_get());
 #if DEBUG
-	pr_info(MPDEC_TAG"[DEBUG] rq: %u, new_state: %i | Mask=[%d%d%d%d]\n",
-			rq_depth, new_state, cpu_online(0), cpu_online(1), cpu_online(2), cpu_online(3));
+	pr_info(MPDEC_TAG"[DEBUG] rq: %u, new_state: %i | Mask=[%d%d%d%d%d%d]\n",
+			rq_depth, new_state, cpu_online(0), cpu_online(1), cpu_online(2), cpu_online(3), cpu_online(4), cpu_online(5));
 #endif
 	return new_state;
 }
@@ -293,8 +294,8 @@ static void bricked_hotplug_suspend(struct work_struct *work)
 			cpu_down(cpu);
 	}
 
-	pr_info(MPDEC_TAG": Screen -> off. Deactivated bricked hotplug. | Mask=[%d%d%d%d]\n",
-			cpu_online(0), cpu_online(1), cpu_online(2), cpu_online(3));
+	pr_info(MPDEC_TAG": Screen -> off. Deactivated bricked hotplug. | Mask=[%d%d%d%d%d%d]\n",
+			cpu_online(0), cpu_online(1), cpu_online(2), cpu_online(3), cpu_online(4), cpu_online(5));
 }
 
 static void __ref bricked_hotplug_resume(struct work_struct *work)
@@ -334,8 +335,8 @@ static void __ref bricked_hotplug_resume(struct work_struct *work)
 	/* Resume hotplug workqueue if required */
 	if (required_reschedule) {
 		queue_delayed_work(hotplug_wq, &hotplug_work, 0);
-		pr_info(MPDEC_TAG": Screen -> on. Activated bricked hotplug. | Mask=[%d%d%d%d]\n",
-				cpu_online(0), cpu_online(1), cpu_online(2), cpu_online(3));
+		pr_info(MPDEC_TAG": Screen -> on. Activated bricked hotplug. | Mask=[%d%d%d%d%d%d]\n",
+				cpu_online(0), cpu_online(1), cpu_online(2), cpu_online(3), cpu_online(4), cpu_online(5));
 	}
 }
 
@@ -543,6 +544,7 @@ define_one_twts(twts_threshold_9, 9);
 define_one_twts(twts_threshold_10, 10);
 define_one_twts(twts_threshold_11, 11);
 
+
 #define define_one_nwns(file_name, arraypos)				\
 static ssize_t show_##file_name						\
 (struct device *dev, struct device_attribute *bricked_hotplug_attrs,	\
@@ -575,6 +577,7 @@ define_one_nwns(nwns_threshold_8, 8);
 define_one_nwns(nwns_threshold_9, 9);
 define_one_nwns(nwns_threshold_10, 10);
 define_one_nwns(nwns_threshold_11, 11);
+
 
 static ssize_t show_idle_freq (struct device *dev,
 				struct device_attribute *bricked_hotplug_attrs,
