@@ -13,9 +13,6 @@ THREAD="-j$(grep -c ^processor /proc/cpuinfo)"
 KERNEL="Image"
 DTBIMAGE="dtb"
 
-# Kernel Details
-
-VER=".R7-N.h815."
 
 # Paths
 KERNEL_DIR=`pwd`
@@ -88,6 +85,11 @@ case "$choice" in
 		break;;
 esac
 done
+
+# Kernel Details
+
+VER=".R7.2-N.${variant}."
+
 
 while read -p "Do you want to use UBERTC 4.9(1) or UBERTC 5.3(2)? " echoice
 do
