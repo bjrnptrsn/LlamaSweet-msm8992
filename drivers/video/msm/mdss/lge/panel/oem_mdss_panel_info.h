@@ -44,8 +44,9 @@ struct lge_pan_info {
 	int bl_store_mode;
 #if defined(CONFIG_LGE_BLMAP_STORE_MODE)
 	int *blmap_store_mode;
-	int panel_type;
+
 #endif
+	int panel_type;
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_EXTENDED_PANEL)
 	/* Following is used for lcd mode switch, u0 u1 u2 u3 */
 	enum lge_panel_mode_switch_state cur_panel_mode;
