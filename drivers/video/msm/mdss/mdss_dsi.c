@@ -37,6 +37,10 @@
 struct lge_mdss_dsi_interface lge_mdss_dsi;
 #endif
 
+#ifdef CONFIG_STATE_NOTIFIER
+#include <linux/state_notifier.h>
+#endif
+
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_EXTENDED_PANEL)
 extern int lge_lg4945_panel_mode_cmd_send(int mode);
 #endif

@@ -322,8 +322,7 @@ static int ufs_qcom_hce_enable_notify(struct ufs_hba *hba, bool status)
 	struct ufs_qcom_host *host = hba->priv;
 	int err = 0;
 
-	switch (status) {
-	case PRE_CHANGE:
+	if (status == PRE_CHANGE) {
 		ufs_qcom_power_up_sequence(hba);
 		/*
 		 * The PHY PLL output is the source of tx/rx lane symbol
@@ -339,18 +338,13 @@ static int ufs_qcom_hce_enable_notify(struct ufs_hba *hba, bool status)
 				err = -EINVAL;
 			}
 		}
-
-		break;
-	case POST_CHANGE:
+	} else if (status == POST_CHANGE) {
 		/* check if UFS PHY moved from DISABLED to HIBERN8 */
 		err = ufs_qcom_check_hibern8(hba);
 		ufs_qcom_enable_hw_clk_gating(hba);
-
-		break;
-	default:
+	} else {
 		dev_err(hba->dev, "%s: invalid status %d\n", __func__, status);
 		err = -EINVAL;
-		break;
 	}
 	return err;
 }
@@ -481,8 +475,7 @@ static int ufs_qcom_link_startup_notify(struct ufs_hba *hba, bool status)
 	unsigned long core_clk_rate = 0;
 	u32 core_clk_cycles_per_100ms;
 
-	switch (status) {
-	case PRE_CHANGE:
+	if (status == PRE_CHANGE) {
 		core_clk_rate = ufs_qcom_cfg_timers(hba, UFS_PWM_G1,
 						    SLOWAUTO_MODE, 0);
 		if (!core_clk_rate) {
@@ -494,12 +487,8 @@ static int ufs_qcom_link_startup_notify(struct ufs_hba *hba, bool status)
 			(core_clk_rate / MSEC_PER_SEC) * 100;
 		ufshcd_writel(hba, core_clk_cycles_per_100ms,
 					REG_UFS_PA_LINK_STARTUP_TIMER);
-		break;
-	case POST_CHANGE:
+	} else if (status == POST_CHANGE) {
 		ufs_qcom_link_startup_post_change(hba);
-		break;
-	default:
-		break;
 	}
 
 	return 0;
@@ -879,8 +868,7 @@ static int ufs_qcom_pwr_change_notify(struct ufs_hba *hba,
 		goto out;
 	}
 
-	switch (status) {
-	case PRE_CHANGE:
+	if (status == PRE_CHANGE) {
 		ufs_qcom_cap.tx_lanes = UFS_QCOM_LIMIT_NUM_LANES_TX;
 		ufs_qcom_cap.rx_lanes = UFS_QCOM_LIMIT_NUM_LANES_RX;
 		ufs_qcom_cap.hs_rx_gear = UFS_QCOM_LIMIT_HSGEAR_RX;
@@ -908,8 +896,7 @@ static int ufs_qcom_pwr_change_notify(struct ufs_hba *hba,
 		if (!ufshcd_is_hs_mode(&hba->pwr_info) &&
 			ufshcd_is_hs_mode(dev_req_params))
 			ufs_qcom_enable_dev_ref_clk(host, true);
-		break;
-	case POST_CHANGE:
+	} else if (status == POST_CHANGE) {
 		if (!ufs_qcom_cfg_timers(hba, dev_req_params->gear_rx,
 					dev_req_params->pwr_rx,
 					dev_req_params->hs_rate)) {
@@ -940,10 +927,8 @@ static int ufs_qcom_pwr_change_notify(struct ufs_hba *hba,
 		if (ufshcd_is_hs_mode(&hba->pwr_info) &&
 			!ufshcd_is_hs_mode(dev_req_params))
 			ufs_qcom_enable_dev_ref_clk(host, false);
-		break;
-	default:
+	} else {
 		ret = -EINVAL;
-		break;
 	}
 out:
 	return ret;

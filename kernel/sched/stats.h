@@ -104,8 +104,9 @@ static inline void sched_info_queued(struct task_struct *t)
 }
 
 /*
- * Called when a process ceases being the active-running process, either
- * voluntarily or involuntarily.  Now we can calculate how long we ran.
+ * Called when a process ceases being the active-running process involuntarily
+ * due, typically, to expiring its time slice (this may also be called when
+ * switching to the idle task).  Now we can calculate how long we ran.
  * Also, if the process is still in the TASK_RUNNING state, call
  * sched_info_queued() to mark that it has now again started waiting on
  * the runqueue.
@@ -162,6 +163,39 @@ sched_info_switch(struct task_struct *prev, struct task_struct *next)
  */
 
 /**
+ * cputimer_running - return true if cputimer is running
+ *
+ * @tsk:	Pointer to target task.
+ */
+static inline bool cputimer_running(struct task_struct *tsk)
+
+{
+	struct thread_group_cputimer *cputimer = &tsk->signal->cputimer;
+
+	if (!cputimer->running)
+		return false;
+
+	/*
+	 * After we flush the task's sum_exec_runtime to sig->sum_sched_runtime
+	 * in __exit_signal(), we won't account to the signal struct further
+	 * cputime consumed by that task, even though the task can still be
+	 * ticking after __exit_signal().
+	 *
+	 * In order to keep a consistent behaviour between thread group cputime
+	 * and thread group cputimer accounting, lets also ignore the cputime
+	 * elapsing after __exit_signal() in any thread group timer running.
+	 *
+	 * This makes sure that POSIX CPU clocks and timers are synchronized, so
+	 * that a POSIX CPU timer won't expire while the corresponding POSIX CPU
+	 * clock delta is behind the expiring timer value.
+	 */
+	if (unlikely(!tsk->sighand))
+		return false;
+
+	return true;
+}
+
+/**
  * account_group_user_time - Maintain utime for a thread group.
  *
  * @tsk:	Pointer to task structure.
@@ -176,7 +210,7 @@ static inline void account_group_user_time(struct task_struct *tsk,
 {
 	struct thread_group_cputimer *cputimer = &tsk->signal->cputimer;
 
-	if (!cputimer->running)
+	if (!cputimer_running(tsk))
 		return;
 
 	raw_spin_lock(&cputimer->lock);
@@ -199,7 +233,7 @@ static inline void account_group_system_time(struct task_struct *tsk,
 {
 	struct thread_group_cputimer *cputimer = &tsk->signal->cputimer;
 
-	if (!cputimer->running)
+	if (!cputimer_running(tsk))
 		return;
 
 	raw_spin_lock(&cputimer->lock);
@@ -222,7 +256,7 @@ static inline void account_group_exec_runtime(struct task_struct *tsk,
 {
 	struct thread_group_cputimer *cputimer = &tsk->signal->cputimer;
 
-	if (!cputimer->running)
+	if (!cputimer_running(tsk))
 		return;
 
 	raw_spin_lock(&cputimer->lock);

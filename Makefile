@@ -378,8 +378,15 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
 		   -fno-delete-null-pointer-checks \
-		   -std=gnu89
-
+                   -mcpu=cortex-a57.cortex-a53 -mtune=cortex-a57.cortex-a53 \
+		   -std=gnu89 \
+           -fmodulo-sched -fmodulo-sched-allow-regmoves -ffast-math \
+           -funswitch-loops -fpredictive-commoning -fgcse-after-reload \
+		   -fno-delete-null-pointer-checks \
+		   -ftree-loop-vectorize -ftree-loop-distribute-patterns -ftree-slp-vectorize \
+           -fvect-cost-model -ftree-partial-pre \
+           -fgcse-lm -fgcse-sm -fsched-spec-load -fsingle-precision-constant
+           
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
 KBUILD_AFLAGS   := -D__ASSEMBLY__
@@ -579,7 +586,7 @@ all: vmlinux
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= -Os $(call cc-disable-warning,maybe-uninitialized,)
 else
-KBUILD_CFLAGS	+= -O2
+KBUILD_CFLAGS	+= -O3
 endif
 
 include $(srctree)/arch/$(SRCARCH)/Makefile

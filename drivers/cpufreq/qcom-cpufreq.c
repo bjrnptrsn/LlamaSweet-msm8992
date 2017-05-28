@@ -31,6 +31,40 @@
 
 static DEFINE_MUTEX(l2bw_lock);
 
+static unsigned long arg_cpu_max_a53 = 1555200;
+
+static int __init cpufreq_read_cpu_max_a53(char *cpu_max_a53)
+{
+	unsigned long ui_khz;
+	int ret;
+
+	ret = kstrtoul(cpu_max_a53, 0, &ui_khz);
+	if (ret)
+		return -EINVAL;
+
+	arg_cpu_max_a53 = ui_khz;
+	printk("cpu_max_a53=%lu\n", arg_cpu_max_a53);
+	return ret;
+}
+__setup("cpu_max_a53=", cpufreq_read_cpu_max_a53);
+
+static unsigned long arg_cpu_max_a57 = 1958400;
+
+static int __init cpufreq_read_cpu_max_a57(char *cpu_max_a57)
+{
+	unsigned long ui_khz;
+	int ret;
+
+	ret = kstrtoul(cpu_max_a57, 0, &ui_khz);
+	if (ret)
+		return -EINVAL;
+
+	arg_cpu_max_a57 = ui_khz;
+	printk("cpu_max_a57=%lu\n", arg_cpu_max_a57);
+	return ret;
+}
+__setup("cpu_max_a57=", cpufreq_read_cpu_max_a57);
+
 static struct clk *cpu_clk[NR_CPUS];
 static struct clk *l2_clk;
 static DEFINE_PER_CPU(struct cpufreq_frequency_table *, freq_table);
@@ -252,13 +286,17 @@ static int msm_cpufreq_suspend(void)
 
 static int msm_cpufreq_resume(void)
 {
-	int cpu, ret;
+	int cpu;
+#ifndef CONFIG_CPU_BOOST
+	int ret;
 	struct cpufreq_policy policy;
+#endif
 
 	for_each_possible_cpu(cpu) {
 		per_cpu(cpufreq_suspend, cpu).device_suspended = 0;
 	}
 
+#ifndef CONFIG_CPU_BOOST
 	/*
 	 * Freq request might be rejected during suspend, resulting
 	 * in policy->cur violating min/max constraint.
@@ -280,6 +318,7 @@ static int msm_cpufreq_resume(void)
 				cpu);
 	}
 	put_online_cpus();
+#endif
 
 	return NOTIFY_DONE;
 }
@@ -371,6 +410,13 @@ static struct cpufreq_frequency_table *cpufreq_parse_dt(struct device *dev,
 		 */
 		if (i > 0 && f <= ftbl[i-1].frequency)
 			break;
+
+		//Custom max freq
+		if ((cpu < 4 && f > arg_cpu_max_a53) ||
+				(cpu >= 4 && f > arg_cpu_max_a57)) {
+			nf = i;
+			break;
+		}
 
 		ftbl[i].driver_data = i;
 		ftbl[i].frequency = f;

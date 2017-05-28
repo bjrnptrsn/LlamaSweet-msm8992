@@ -160,7 +160,7 @@ void tune_lmk_zone_param(struct zonelist *zonelist, int classzone_idx,
 	for_each_zone_zonelist(zone, zoneref, zonelist, MAX_NR_ZONES) {
 		zone_idx = zonelist_zone_idx(zoneref);
 		if (zone_idx == ZONE_MOVABLE) {
-			if (!use_cma_pages)
+			if (!use_cma_pages && other_free)
 				*other_free -=
 				    zone_page_state(zone, NR_FREE_CMA_PAGES);
 			continue;
@@ -175,7 +175,8 @@ void tune_lmk_zone_param(struct zonelist *zonelist, int classzone_idx,
 							       NR_FILE_PAGES)
 					      - zone_page_state(zone, NR_SHMEM);
 		} else if (zone_idx < classzone_idx) {
-			if (zone_watermark_ok(zone, 0, 0, classzone_idx, 0)) {
+			if (zone_watermark_ok(zone, 0, 0, classzone_idx, 0) &&
+			    other_free) {
 				if (!use_cma_pages) {
 					*other_free -= min(
 					  zone->lowmem_reserve[classzone_idx] +
@@ -188,8 +189,9 @@ void tune_lmk_zone_param(struct zonelist *zonelist, int classzone_idx,
 					  zone->lowmem_reserve[classzone_idx];
 				}
 			} else {
-				*other_free -=
-					   zone_page_state(zone, NR_FREE_PAGES);
+				if (other_free)
+					*other_free -=
+					  zone_page_state(zone, NR_FREE_PAGES);
 			}
 		}
 	}
@@ -305,6 +307,15 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 	int other_free;
 	int other_file;
 	unsigned long nr_to_scan = sc->nr_to_scan;
+
+	rcu_read_lock();
+	tsk = current->group_leader;
+	if ((tsk->flags & PF_EXITING) && test_task_flag(tsk, TIF_MEMDIE)) {
+		set_tsk_thread_flag(current, TIF_MEMDIE);
+		rcu_read_unlock();
+		return 0;
+	}
+	rcu_read_unlock();
 
 	if (nr_to_scan > 0) {
 		if (mutex_lock_interruptible(&scan_mutex) < 0)
@@ -435,7 +446,11 @@ exit_timeout:
 #else
 				rcu_read_unlock();
 				/* give the system time to free up the memory */
-				msleep_interruptible(20);
+				if (!same_thread_group(current, tsk))
+					msleep_interruptible(20);
+				else
+					set_tsk_thread_flag(current,
+								TIF_MEMDIE);
 				mutex_unlock(&scan_mutex);
 #endif
 				return 0;
@@ -448,6 +463,13 @@ exit_timeout:
 
 		oom_score_adj = p->signal->oom_score_adj;
 		if (oom_score_adj < min_score_adj) {
+			task_unlock(p);
+			continue;
+		}
+		if (fatal_signal_pending(p) ||
+				((p->flags & PF_EXITING) &&
+					test_tsk_thread_flag(p, TIF_MEMDIE))) {
+			lowmem_print(2, "skip slow dying process %d\n", p->pid);
 			task_unlock(p);
 			continue;
 		}

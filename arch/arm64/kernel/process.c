@@ -104,6 +104,22 @@ EXPORT_SYMBOL_GPL(arm_pm_restart);
 /*
  * This is our default idle handler.
  */
+
+extern void arch_idle(void);
+void (*arm_pm_idle)(void) = arch_idle;
+
+static void default_idle(void)
+{
+	if (arm_pm_idle)
+		arm_pm_idle();
+	else
+		cpu_do_idle();
+	local_irq_enable();
+}
+
+void (*pm_idle)(void) = default_idle;
+EXPORT_SYMBOL(pm_idle);
+
 void arch_cpu_idle(void)
 {
 	/*
@@ -333,7 +349,8 @@ void release_thread(struct task_struct *dead_task)
 
 int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 {
-	fpsimd_preserve_current_state();
+	if (current->mm)
+		fpsimd_preserve_current_state();
 	*dst = *src;
 	return 0;
 }

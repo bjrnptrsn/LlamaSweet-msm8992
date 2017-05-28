@@ -171,9 +171,14 @@ device_param_cb(num_clusters, &param_ops_num_clusters, NULL, 0644);
 
 static int set_max_cpus(const char *buf, const struct kernel_param *kp)
 {
+#if 0
 	unsigned int i, ntokens = 0;
 	const char *cp = buf;
 	int val;
+	int msm_perf = strcmp(current->comm, "perfd");
+
+	if (msm_perf == 0)
+		return -EINVAL;
 
 	if (!clusters_inited)
 		return -EINVAL;
@@ -201,6 +206,7 @@ static int set_max_cpus(const char *buf, const struct kernel_param *kp)
 	}
 
 	schedule_delayed_work(&evaluate_hotplug_work, 0);
+#endif
 
 	return 0;
 }
@@ -225,7 +231,9 @@ static const struct kernel_param_ops param_ops_max_cpus = {
 	.get = get_max_cpus,
 };
 
+#ifdef CONFIG_MSM_PERFORMANCE_HOTPLUG_ON
 device_param_cb(max_cpus, &param_ops_max_cpus, NULL, 0644);
+#endif
 
 static int set_managed_cpus(const char *buf, const struct kernel_param *kp)
 {
@@ -308,9 +316,11 @@ static int get_managed_online_cpus(char *buf, const struct kernel_param *kp)
 static const struct kernel_param_ops param_ops_managed_online_cpus = {
 	.get = get_managed_online_cpus,
 };
-device_param_cb(managed_online_cpus, &param_ops_managed_online_cpus,
-								NULL, 0444);
 
+#ifdef CONFIG_MSM_PERFORMANCE_HOTPLUG_ON
+device_param_cb(managed_online_cpus, &param_ops_managed_online_cpus,
+							NULL, 0444);
+#endif
 /*
  * Userspace sends cpu#:min_freq_value to vote for min_freq_value as the new
  * scaling_min. To withdraw its vote it needs to enter cpu#:0
@@ -324,6 +334,10 @@ static int set_cpu_min_freq(const char *buf, const struct kernel_param *kp)
 	struct cpufreq_policy policy;
 	cpumask_var_t limit_mask;
 	int ret;
+	int msm_perf = strcmp(current->comm, "perfd");
+
+	if (msm_perf == 0)
+		return ret;
 
 	while ((cp = strpbrk(cp + 1, " :")))
 		ntokens++;
@@ -1005,9 +1019,14 @@ device_param_cb(iowait_ceiling_pct, &param_ops_iowait_ceiling_pct, NULL, 0644);
 
 static int set_workload_detect(const char *buf, const struct kernel_param *kp)
 {
+#if 0
 	unsigned int val, i;
 	struct cluster *i_cl;
 	unsigned long flags;
+	int msm_perf = strcmp(current->comm, "perfd");
+
+       if (msm_perf == 0)
+               return -EINVAL;
 
 	if (!clusters_inited)
 		return -EINVAL;
@@ -1046,6 +1065,8 @@ static int set_workload_detect(const char *buf, const struct kernel_param *kp)
 	}
 
 	wake_up_process(notify_thread);
+#endif
+
 	return 0;
 }
 

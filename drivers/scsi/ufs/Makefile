@@ -1,4 +1,7 @@
 # UFSHCD makefile
+
+CFLAGS_ufs-qcom-ice.o += -Wno-memset-transposed-args
+
 obj-$(CONFIG_SCSI_UFS_QCOM) += ufs-qcom.o
 obj-$(CONFIG_SCSI_UFS_QCOM_ICE) += ufs-qcom-ice.o
 obj-$(CONFIG_SCSI_UFSHCD) += ufshcd.o ufs_quirks.o

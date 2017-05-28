@@ -30,6 +30,11 @@
 #include <linux/tick.h>
 #include <trace/events/power.h>
 
+/* HACK: Prevent big cluster turned off when changing governor settings. */
+#ifdef CONFIG_MSM_HOTPLUG
+#include <linux/workqueue.h>
+#endif
+
 /**
  * The "cpufreq driver" - the arch- or hardware-dependent low
  * level driver of CPUFreq support, and its spinlock. This lock
@@ -336,6 +341,20 @@ void cpufreq_notify_transition(struct cpufreq_policy *policy,
 		__cpufreq_notify_transition(policy, freqs, state);
 }
 EXPORT_SYMBOL_GPL(cpufreq_notify_transition);
+/**
+ * cpufreq_notify_utilization - notify CPU userspace about CPU utilization
+ * change
+ *
+ * This function is called everytime the CPU load is evaluated by the
+ * ondemand governor. It notifies userspace of cpu load changes via sysfs.
+ */
+
+void cpufreq_notify_utilization(struct cpufreq_policy *policy,
+		unsigned int util)
+{
+	if (policy)
+		policy->util = util;
+}
 
 
 /*********************************************************************
@@ -417,10 +436,32 @@ static ssize_t show_##file_name				\
 	return sprintf(buf, "%u\n", policy->object);	\
 }
 
+/* HACK: Prevent big cluster turned off when changing governor settings. */
+#ifdef CONFIG_MSM_HOTPLUG
+extern bool prevent_big_off;
+
+static void prevent_big_off_cancel(struct work_struct *prevent_big_off_cancel_work)
+{
+	prevent_big_off = false;
+}
+static DECLARE_DELAYED_WORK(prevent_big_off_cancel_work, prevent_big_off_cancel);
+
+static ssize_t show_scaling_min_freq
+(struct cpufreq_policy *policy, char *buf)
+{
+	prevent_big_off = true;
+	cancel_delayed_work(&prevent_big_off_cancel_work);
+	schedule_delayed_work(&prevent_big_off_cancel_work,
+			msecs_to_jiffies(5000));
+	return sprintf(buf, "%u\n", policy->min);
+}
+#else
+show_one(scaling_min_freq, min);
+#endif
+
 show_one(cpuinfo_min_freq, cpuinfo.min_freq);
 show_one(cpuinfo_max_freq, cpuinfo.max_freq);
 show_one(cpuinfo_transition_latency, cpuinfo.transition_latency);
-show_one(scaling_min_freq, min);
 show_one(scaling_max_freq, max);
 show_one(scaling_cur_freq, cur);
 
@@ -1426,6 +1467,29 @@ static void cpufreq_out_of_sync(unsigned int cpu, unsigned int old_freq,
 }
 
 /**
+ * cpufreq_quick_get_util - get the CPU utilization from policy->util
+ * @cpu: CPU number
+ *
+ * This is the last known util, without actually getting it from the driver.
+ * Return value will be same as what is shown in util in sysfs.
+ */
+
+unsigned int cpufreq_quick_get_util(unsigned int cpu)
+{
+	struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
+	unsigned int ret_util = 0;
+
+	if (policy) {
+		ret_util = policy->util;
+		cpufreq_cpu_put(policy);
+	}
+
+	return ret_util;
+}
+EXPORT_SYMBOL(cpufreq_quick_get_util);
+
+
+/**
  * cpufreq_quick_get - get the CPU frequency (in kHz) from policy->cur
  * @cpu: CPU number
  *
@@ -1746,6 +1810,15 @@ int __cpufreq_driver_target(struct cpufreq_policy *policy,
 	pr_debug("target for CPU %u: %u kHz, relation %u, requested %u kHz\n",
 			policy->cpu, target_freq, relation, old_target_freq);
 
+	/*
+	 * This might look like a redundant call as we are checking it again
+	 * after finding index. But it is left intentionally for cases where
+	 * exactly same freq is called again and so we can save on few function
+	 * calls.
+	 */
+	if (target_freq == policy->cur)
+		return 0;
+
 	if (cpufreq_driver->target)
 		retval = cpufreq_driver->target(policy, target_freq, relation);
 	else if (cpufreq_driver->target_index) {
@@ -1825,6 +1898,23 @@ int cpufreq_driver_target(struct cpufreq_policy *policy,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(cpufreq_driver_target);
+
+int __cpufreq_driver_getavg(struct cpufreq_policy *policy, unsigned int cpu)
+{
+    int ret = 0;
+    
+    policy = cpufreq_cpu_get(policy->cpu);
+    if (!policy)
+    return -EINVAL;
+    
+    if (cpu_online(cpu) && cpufreq_driver->getavg)
+    ret = cpufreq_driver->getavg(policy, cpu);
+    
+    cpufreq_cpu_put(policy);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(__cpufreq_driver_getavg);
+
 
 /*
  * when "event" is CPUFREQ_GOV_LIMITS

@@ -273,6 +273,15 @@ static cpumask_var_t *wq_numa_possible_cpumask;
 static bool wq_disable_numa;
 module_param_named(disable_numa, wq_disable_numa, bool, 0444);
 
+/* see the comment above the definition of WQ_POWER_EFFICIENT */
+#ifdef CONFIG_WQ_POWER_EFFICIENT_DEFAULT
+static bool wq_power_efficient = true;
+#else
+static bool wq_power_efficient;
+#endif
+
+module_param_named(power_efficient, wq_power_efficient, bool, 0644);
+
 static bool wq_numa_enabled;		/* unbound NUMA affinity enabled */
 
 /* buf for wq_update_unbound_numa_attrs(), protected by CPU hotplug exclusion */
@@ -309,6 +318,10 @@ struct workqueue_struct *system_unbound_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_unbound_wq);
 struct workqueue_struct *system_freezable_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_freezable_wq);
+struct workqueue_struct *system_power_efficient_wq __read_mostly;
+EXPORT_SYMBOL_GPL(system_power_efficient_wq);
+struct workqueue_struct *system_freezable_power_efficient_wq __read_mostly;
+EXPORT_SYMBOL_GPL(system_freezable_power_efficient_wq);
 
 static int worker_thread(void *__worker);
 static void copy_workqueue_attrs(struct workqueue_attrs *to,
@@ -503,19 +516,33 @@ void destroy_work_on_stack(struct work_struct *work)
 }
 EXPORT_SYMBOL_GPL(destroy_work_on_stack);
 
+void destroy_delayed_work_on_stack(struct delayed_work *work)
+{
+	destroy_timer_on_stack(&work->timer);
+	debug_object_free(&work->work, &work_debug_descr);
+}
+EXPORT_SYMBOL_GPL(destroy_delayed_work_on_stack);
+
 #else
 static inline void debug_work_activate(struct work_struct *work) { }
 static inline void debug_work_deactivate(struct work_struct *work) { }
 #endif
 
-/* allocate ID and assign it to @pool */
+/**
+ * worker_pool_assign_id - allocate ID and assing it to @pool
+ * @pool: the pool pointer of interest
+ *
+ * Returns 0 if ID in [0, WORK_OFFQ_POOL_NONE) is allocated and assigned
+ * successfully, -errno on failure.
+ */
 static int worker_pool_assign_id(struct worker_pool *pool)
 {
 	int ret;
 
 	lockdep_assert_held(&wq_pool_mutex);
 
-	ret = idr_alloc(&worker_pool_idr, pool, 0, 0, GFP_KERNEL);
+	ret = idr_alloc(&worker_pool_idr, pool, 0, WORK_OFFQ_POOL_NONE,
+			GFP_KERNEL);
 	if (ret >= 0) {
 		pool->id = ret;
 		return 0;
@@ -748,13 +775,6 @@ static bool too_many_workers(struct worker_pool *pool)
 	int nr_idle = pool->nr_idle + managing; /* manager is considered idle */
 	int nr_busy = pool->nr_workers - nr_idle;
 
-	/*
-	 * nr_idle and idle_list may disagree if idle rebinding is in
-	 * progress.  Never return %true if idle_list is empty.
-	 */
-	if (list_empty(&pool->idle_list))
-		return false;
-
 	return nr_idle > 2 && (nr_idle - 2) * MAX_IDLE_WORKERS_RATIO >= nr_busy;
 }
 
@@ -840,7 +860,7 @@ struct task_struct *wq_worker_sleeping(struct task_struct *task, int cpu)
 	pool = worker->pool;
 
 	/* this can only happen on the local cpu */
-	if (WARN_ON_ONCE(cpu != raw_smp_processor_id()))
+	if (WARN_ON_ONCE(cpu != raw_smp_processor_id() || pool->cpu != cpu))
 		return NULL;
 
 	/*
@@ -1451,13 +1471,13 @@ static void __queue_delayed_work(int cpu, struct workqueue_struct *wq,
 	timer_stats_timer_set_start_info(&dwork->timer);
 
 	dwork->wq = wq;
+	/* timer isn't guaranteed to run in this cpu, record earlier */
+	if (cpu == WORK_CPU_UNBOUND)
+		cpu = raw_smp_processor_id();
 	dwork->cpu = cpu;
 	timer->expires = jiffies + delay;
 
-	if (unlikely(cpu != WORK_CPU_UNBOUND))
-		add_timer_on(timer, cpu);
-	else
-		add_timer(timer);
+	add_timer_on(timer, cpu);
 }
 
 /**
@@ -1964,8 +1984,7 @@ restart:
 		if (!need_to_create_worker(pool))
 			break;
 
-		__set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(CREATE_COOLDOWN);
+		schedule_timeout_interruptible(CREATE_COOLDOWN);
 
 		if (!need_to_create_worker(pool))
 			break;
@@ -2399,7 +2418,25 @@ repeat:
 			if (get_work_pwq(work) == pwq)
 				move_linked_works(work, scheduled, &n);
 
-		process_scheduled_works(rescuer);
+		if (!list_empty(scheduled)) {
+			process_scheduled_works(rescuer);
+
+			/*
+			 * The above execution of rescued work items could
+			 * have created more to rescue through
+			 * pwq_activate_first_delayed() or chained
+			 * queueing.  Let's put @pwq back on mayday list so
+			 * that such back-to-back work items, which may be
+			 * being used to relieve memory pressure, don't
+			 * incur MAYDAY_INTERVAL delay inbetween.
+			 */
+			if (need_to_create_worker(pool)) {
+				spin_lock(&wq_mayday_lock);
+				get_pwq(pwq);
+				list_move_tail(&pwq->mayday_node, &wq->maydays);
+				spin_unlock(&wq_mayday_lock);
+			}
+		}
 
 		/*
 		 * Put the reference grabbed by send_mayday().  @pool won't
@@ -3578,7 +3615,7 @@ static void put_unbound_pool(struct worker_pool *pool)
 		return;
 
 	/* sanity checks */
-	if (WARN_ON(!(pool->flags & POOL_DISASSOCIATED)) ||
+	if (WARN_ON(!(pool->cpu < 0)) ||
 	    WARN_ON(!list_empty(&pool->worklist)))
 		return;
 
@@ -4184,6 +4221,10 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,
 	va_list args;
 	struct workqueue_struct *wq;
 	struct pool_workqueue *pwq;
+
+	/* see the comment above the definition of WQ_POWER_EFFICIENT */
+	if ((flags & WQ_POWER_EFFICIENT) && wq_power_efficient)
+		flags |= WQ_UNBOUND;
 
 	/* allocate wq and format name */
 	if (flags & WQ_UNBOUND)
@@ -5026,10 +5067,6 @@ static int __init init_workqueues(void)
 	int std_nice[NR_STD_WORKER_POOLS] = { 0, HIGHPRI_NICE_LEVEL };
 	int i, cpu;
 
-	/* make sure we have enough bits for OFFQ pool ID */
-	BUILD_BUG_ON((1LU << (BITS_PER_LONG - WORK_OFFQ_POOL_SHIFT)) <
-		     WORK_CPU_END * NR_STD_WORKER_POOLS);
-
 	WARN_ON(__alignof__(struct pool_workqueue) < __alignof__(long long));
 
 	pwq_cache = KMEM_CACHE(pool_workqueue, SLAB_PANIC);
@@ -5094,8 +5131,15 @@ static int __init init_workqueues(void)
 					    WQ_UNBOUND_MAX_ACTIVE);
 	system_freezable_wq = alloc_workqueue("events_freezable",
 					      WQ_FREEZABLE, 0);
+	system_power_efficient_wq = alloc_workqueue("events_power_efficient",
+					      WQ_POWER_EFFICIENT, 0);
+	system_freezable_power_efficient_wq = alloc_workqueue("events_freezable_power_efficient",
+					      WQ_FREEZABLE | WQ_POWER_EFFICIENT,
+					      0);
 	BUG_ON(!system_wq || !system_highpri_wq || !system_long_wq ||
-	       !system_unbound_wq || !system_freezable_wq);
+	       !system_unbound_wq || !system_freezable_wq ||
+	       !system_power_efficient_wq ||
+	       !system_freezable_power_efficient_wq);
 	return 0;
 }
 early_initcall(init_workqueues);
