@@ -88,7 +88,7 @@ done
 
 # Kernel Details
 
-VER=".R7.2-N.${variant}."
+VER=".R7.4-N.${variant}."
 
 
 while read -p "Do you want to use UBERTC 4.9(1) or UBERTC 5.3(2)? " echoice
